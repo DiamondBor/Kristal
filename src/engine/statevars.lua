@@ -44,3 +44,5 @@ REGISTRY_LOADED = false
 
 ---@type string?
 COROUTINE_TRACEBACK = nil
+
+SOUND_DISABLED = false

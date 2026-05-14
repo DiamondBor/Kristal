@@ -74,6 +74,15 @@ function Kristal.fetch(url, options)
     return true
 end
 
+function Kristal.verifySoundSystem()
+    local source = love.audio.newSource("assets/music/none.ogg", "static")
+    local success = source:play()
+    if not success then
+        print("Audio has been detected as unavailable, disabling sound for the rest of the session")
+        SOUND_DISABLED = true
+    end
+end
+
 function love.load(args)
     --[[
         Launch args:
@@ -132,6 +141,8 @@ function love.load(args)
 
     -- hide mouse
     Kristal.hideCursor()
+
+    Kristal.verifySoundSystem()
 
     -- make mouse sprite
     MOUSE_SPRITE = love.graphics.newImage((love.math.random(1000) <= 1) and "assets/sprites/kristal/starwalker.png" or
@@ -1205,6 +1216,14 @@ function Kristal.getVolume()
     return Kristal.Config["masterVolume"]
 end
 
+function Kristal.resetDevMode()
+    DEBUG_OVERRIDE = false
+
+    FAST_FORWARD = false
+    DEBUG_RENDER = false
+    NOCLIP = false
+end
+
 --- Clears all state expected to be changed by projects. \
 --- Called internally when exiting or reloading a project.
 function Kristal.clearModState()
@@ -1221,10 +1240,7 @@ function Kristal.clearModState()
     Kristal.callEvent(KRISTAL_EVENT.cleanup)
     Mod = nil
 
-    DEBUG_OVERRIDE = false
-
-    FAST_FORWARD = false
-    DEBUG_RENDER = false
+    Kristal.resetDevMode()
 
     -- Close the console or debug menu if open
     -- (We don't care much if someone "smuggles" them out of the Game state, but we'll try to close them if we can)
@@ -1464,8 +1480,7 @@ function Kristal.loadMod(id, save_id, save_name, after)
         if Kristal.preInitMod(mod.id) then
             Kristal.setDesiredWindowTitleAndIcon()
             Kristal.setState("Game", save_id, save_name)
-            FAST_FORWARD = false
-            DEBUG_RENDER = false
+            Kristal.resetDevMode()
         end
     end)
 
@@ -1764,7 +1779,7 @@ function Kristal.getSoulColor()
     if Kristal.getState() == Game then
         return Game:getSoulColor()
     end
-    return COLORS.red[1], COLORS.red[2], COLORS.red[3], COLORS.red[4]
+    return 1, 0, 0, 1
 end
 
 --- Called internally. Loads the saved user config, with default values.

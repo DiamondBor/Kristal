@@ -20,6 +20,7 @@ function Sound:init(data, settings)
     self.set_volume = 1
 
     self.last_volume = 0 / 0 -- NaN
+
     self:internal_updateSource()
 end
 
@@ -53,6 +54,13 @@ function Sound:internal_updateSource()
     end
 
     if old_source == nil then
+        return
+    end
+
+    if SOUND_DISABLED then
+        -- Anything that uses "old_source" will probably error
+        old_source:stop()
+        old_source:release()
         return
     end
 

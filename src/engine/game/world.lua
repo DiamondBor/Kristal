@@ -475,6 +475,23 @@ function World:checkCollision(collider, enemy_check)
     return false
 end
 
+--- Returns all the inputs `collider` is currently colliding with in the world
+---@param collider      Collider    The collider to check collisions for
+---@param enemy_check?  boolean     Whether to include the enemy collision map in the check
+---@return boolean  collided    Whether a collision was found
+---@return Object[] collisions The objects that were collided with
+function World:checkCollisions(collider, enemy_check)
+    local collided_with = {}
+    Object.startCache()
+    for _, other in ipairs(self:getCollision(enemy_check)) do
+        if collider:collidesWith(other) and collider ~= other then
+            table.insert(collided_with, other.parent)
+        end
+    end
+    Object.endCache()
+    return #collided_with > 0, collided_with
+end
+
 --- Whether the world has a currently active cutscene
 ---@return boolean?
 function World:hasCutscene()
