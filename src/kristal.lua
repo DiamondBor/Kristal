@@ -122,7 +122,8 @@ function love.load(args)
     love.graphics.setDefaultFilter("nearest", "nearest")
 
     -- set the window size
-    local window_scale = Kristal.Config["windowScale"]
+    local window_scale = Kristal.getWindowScale()
+
     if window_scale ~= 1 or Kristal.Config["fullscreen"] or Kristal.bordersEnabled() then
         Kristal.resetWindow()
     end
@@ -230,6 +231,13 @@ function love.quit()
     end
     if Kristal.HTTPS.thread and Kristal.HTTPS.thread:isRunning() then
         Kristal.HTTPS.in_channel:push("stop")
+    end
+end
+
+function love.focus()
+    local state = Kristal.getState()
+    if state ~= nil and state.focus then
+        state:focus()
     end
 end
 
@@ -1595,20 +1603,24 @@ end
 
 --- Called internally. Resets the window properties to the user config.
 function Kristal.resetWindow()
-    local window_scale  = Kristal.Config["windowScale"]
-    local window_width  = SCREEN_WIDTH * window_scale
+    local window_scale = Kristal.getWindowScale()
+    local window_width = SCREEN_WIDTH * window_scale
     local window_height = SCREEN_HEIGHT * window_scale
 
     if Kristal.bordersEnabled() then
         local border_width, border_height = Kristal.getRelativeBorderSize()
-        window_width                      = window_width + border_width
-        window_height                     = window_height + border_height
+        window_width = window_width + border_width
+        window_height = window_height + border_height
     end
 
     local properties = {
         fullscreen = Kristal.Config["fullscreen"],
         vsync = Kristal.Config["vSync"],
     }
+
+    if Kristal.isForcedFullscreen() then
+        properties.fullscreen = true
+    end
 
     local major, _, _, _ = love.getVersion()
 
@@ -1631,6 +1643,11 @@ function Kristal.resetWindow()
     end
 end
 
+---@return boolean forced Whether the game is forced to be in fullscreen mode (on mobile platforms and consoles).
+function Kristal.isForcedFullscreen()
+    return love.system.getOS() == "Android" or love.system.getOS() == "iOS" or Kristal.isConsole()
+end
+
 ---@return boolean console Whether Kristal is in console mode.
 function Kristal.isConsole()
     local os = love.system.getOS()
@@ -1638,11 +1655,30 @@ function Kristal.isConsole()
     return USING_CONSOLE or (love._console ~= nil) or (os == "NX")
 end
 
+function Kristal.getWindowScale()
+    if Kristal.Config["autoWindowScale"] then
+        local display_width, display_height = love.window.getDesktopDimensions()
+
+        local game_width, game_height = SCREEN_WIDTH, SCREEN_HEIGHT
+        if Kristal.bordersEnabled() then
+            game_width = BORDER_WIDTH * BORDER_SCALE
+            game_height = BORDER_HEIGHT * BORDER_SCALE
+        end
+
+        -- DR does a weird for loop to calculate the window scale, this is equivalent
+        -- Weirdly enough, DR doesn't allow exact matches - a 1280x960 display will still produce a 640x480 window... so neither does this
+
+        return MathUtils.clamp(math.ceil(math.min(display_width / game_width, display_height / game_height)) - 1, 1, 11)
+    end
+
+    return Kristal.Config["windowScale"]
+end
+
 ---@return table types The available border types, or `nil` if borders are disabled.
 function Kristal.getBorderTypes()
     local types = {}
 
-    if not Kristal.isConsole() then
+    if not Kristal.isForcedFullscreen() then
         table.insert(types, { "off", "OFF", nil })
     end
 
@@ -1655,7 +1691,7 @@ end
 
 ---@return boolean enabled Whether borders are enabled.
 function Kristal.bordersEnabled()
-    return Kristal.isConsole() or Kristal.Config["borders"] ~= "off"
+    return Kristal.isForcedFullscreen() or Kristal.Config["borders"] ~= "off"
 end
 
 --- Returns the dimensions of the screen border, or (0, 0) if borders are disabled.
@@ -1663,8 +1699,9 @@ end
 ---@return number height The height of the border.
 function Kristal.getBorderSize()
     if Kristal.bordersEnabled() then
-        return (BORDER_WIDTH * BORDER_SCALE) * Kristal.Config["windowScale"],
-            (BORDER_HEIGHT * BORDER_SCALE) * Kristal.Config["windowScale"]
+        local window_scale = Kristal.getWindowScale()
+        return (BORDER_WIDTH * BORDER_SCALE) * window_scale,
+            (BORDER_HEIGHT * BORDER_SCALE) * window_scale
     end
     return 0, 0
 end
@@ -1674,8 +1711,9 @@ end
 ---@return number height The height of the border.
 function Kristal.getRelativeBorderSize()
     if Kristal.bordersEnabled() then
-        return ((BORDER_WIDTH * BORDER_SCALE) - SCREEN_WIDTH) * Kristal.Config["windowScale"],
-            ((BORDER_HEIGHT * BORDER_SCALE) - SCREEN_HEIGHT) * Kristal.Config["windowScale"]
+        local window_scale = Kristal.getWindowScale()
+        return ((BORDER_WIDTH * BORDER_SCALE) - SCREEN_WIDTH) * window_scale,
+            ((BORDER_HEIGHT * BORDER_SCALE) - SCREEN_HEIGHT) * window_scale
     end
     return 0, 0
 end
@@ -1788,11 +1826,12 @@ function Kristal.getSoulColor()
     return 1, 0, 0, 1
 end
 
---- Called internally. Loads the saved user config, with default values.
----@return table config The user config.
-function Kristal.loadConfig()
+--- Called internally. Returns the default config.
+---@return table config The default config.
+function Kristal.getDefaultConfig()
     local config = {
         windowScale = 1,
+        autoWindowScale = true,
         skipIntro = false,
         showFPS = false,
         fps = 30,
@@ -1814,9 +1853,35 @@ function Kristal.loadConfig()
         verboseLoader = false,
         brokenMenuBoxes = false
     }
+
+    return config
+end
+
+--- Called internally. Loads the saved user config, with default values.
+---@return table config The user config.
+function Kristal.loadConfig()
+    local config = Kristal.getDefaultConfig()
+
     if love.filesystem.getInfo("settings.json") then
-        TableUtils.merge(config, JSON.decode(love.filesystem.read("settings.json")))
+        local success, message = pcall(JSON.decode, love.filesystem.read("settings.json"))
+        if not success then
+            print("Error loading settings.json: " .. tostring(message))
+            print("Using default config.")
+            return config
+        end
+
+        local config_type = type(message)
+        if config_type ~= "table" then
+            print("Error loading settings.json: Expected table, got " .. config_type)
+            print("Using default config.")
+            return config
+        end
+
+        TableUtils.merge(config, message)
+    else
+        print("No settings.json found, using default config.")
     end
+
     return config
 end
 
