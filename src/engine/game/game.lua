@@ -903,6 +903,7 @@ function Game:addPartyMember(chara, index)
     else
         table.insert(self.party, chara)
     end
+    self.world:spawnSoul()
     return chara
 end
 
@@ -913,10 +914,12 @@ function Game:removePartyMember(chara)
         chara = self:getPartyMember(chara)
     end
     TableUtils.removeValue(self.party, chara)
+    self.world:spawnSoul()
     return chara
 end
 
 ---@param ... string|PartyMember
+---@return PartyMember[]
 function Game:setPartyMembers(...)
     local args = {...}
     self.party = {}
@@ -927,6 +930,8 @@ function Game:setPartyMembers(...)
             self.party[i] = chara
         end
     end
+    self.world:spawnSoul()
+    return self.party
 end
 
 ---@param chara string|PartyMember
@@ -1190,10 +1195,6 @@ function Game:onKeyPressed(key, is_repeat)
     elseif self.state == "OVERWORLD" then
         if self.world then
             self.world:onKeyPressed(key)
-        end
-    elseif self.state == "SHOP" then
-        if self.shop then
-            self.shop:onKeyPressed(key, is_repeat)
         end
     elseif self.state == "GAMEOVER" then
         if self.gameover then

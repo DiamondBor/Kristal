@@ -204,7 +204,7 @@ KRISTAL_EVENT = {
     --menu events--
     createMenu = "createMenu", -- returns optional custom overworld menu / at: World:createMenu() / passes: NONE / returns: nil|Object
     getDarkMenuButtons = "getDarkMenuButtons", -- optional creation of buttons for custom dark world menu / at: DarkMenu:init() / passes: table:buttons, DarkMenu:self / returns: nil|table
-    getUISkin = "getUISkin", --optional default UI skin key / at: UIBox:init(x, y, width, height, skin) / passes: NONE / returns: nil|string
+    getUISkin = "getUISkin", --optional default UI skin key / at: UIBox:init(x, y, width, height, skin) / passes: skin:string / returns: nil|string
     onDarkMenuOpen = "onDarkMenuOpen",  -- dark world menu is opened / at: DarkMenu:onAdd(parent) / passes: DarkMenu:self / returns: NONE
 
     --discordrpc events--
@@ -268,7 +268,7 @@ KRISTAL_EVENT = {
 
     --map events--
     loadLayer = "loadLayer", -- overrides the map loading the tile layer data on layer depth, when true / at: Map:loadMapData(data) / passes: Map:self, table:layer, number:depth / returns: bool
-    onMapBorder = "onMapBorder", -- intercept game border for this map / at: World:setupMap(map, ...), World:mapTransition(...) / passes: Map:map, string:map_music/ returns: string
+    onMapBorder = "onMapBorder", -- intercept game border for this map / at: World:setupMap(map, ...), World:mapTransition(...) / passes: Map:map, string:map_border / returns: string
     onMapMusic = "onMapMusic", -- intercept game border for this map / at: World:setupMap(map, ...), World:mapTransition(...) / passes: Map:map, string:map_music / returns: string
     loadObject = "loadObject", -- overrides loading an object / at: Map:loadObjects(data) / passes: World:self, name:string, table:data / returns: Event?
 
