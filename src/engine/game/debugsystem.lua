@@ -1977,6 +1977,9 @@ function DebugSystem:onKeyPressed(key, is_repeat)
         elseif Input.isMenu(key) and not is_repeat then
             self:setSpriteActor()
             Assets.playSound("ui_select")
+        elseif Input.is("v", key) then
+            Assets.playSound("ui_select")
+            self:reloadActors()
         elseif Input.isConfirm(key) and not is_repeat then
             if self.current_selecting == 0 then
                 Assets.playSound("ui_select")
