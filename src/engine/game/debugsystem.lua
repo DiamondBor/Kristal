@@ -1967,19 +1967,22 @@ function DebugSystem:onKeyPressed(key, is_repeat)
                 self.sprite_frame_index = MathUtils.wrapIndex(self.sprite_frame_index + (Input.is("down", key) and 1 or -1), #self.sprite_frame_names)
                 self:previewFrame()
                 Assets.playSound("ui_move")
+            elseif key == "v" then
+                Assets.playSound("ui_select")
+                self:reloadActors()
             end
             return
         end
 
-        if Input.isCancel(key) and not is_repeat then
+        if key == "v" then
+            Assets.playSound("ui_select")
+            self:reloadActors()
+        elseif Input.isCancel(key) and not is_repeat then
             Assets.playSound("ui_move")
             self:setState("MENU")
         elseif Input.isMenu(key) and not is_repeat then
             self:setSpriteActor()
             Assets.playSound("ui_select")
-        elseif Input.is("v", key) then
-            Assets.playSound("ui_select")
-            self:reloadActors()
         elseif Input.isConfirm(key) and not is_repeat then
             if self.current_selecting == 0 then
                 Assets.playSound("ui_select")
