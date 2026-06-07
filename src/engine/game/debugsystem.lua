@@ -103,6 +103,21 @@ function DebugSystem:init()
     self.temp_flag_filter_mode = nil
 
     self.filtered_flags_list = {}
+
+    -- actor viewer stuff
+    self.sprite_actor = nil
+    self.sprite_list = {}
+    self.sprite_search = { "" }
+    self.sprite_name = nil
+    self.sprite_index = 1
+    self.sprite_frame_mode = false
+    self.sprite_frame_index = 1
+    self.sprite_frame_names = {}
+    self.sprite_preview = nil
+    self.sprite_actor_menu_index = 1
+    self.sprite_actor_reset = nil
+    self.sprite_switched_id = nil
+    self.sprite_last_actor = nil
 end
 
 function DebugSystem:getStage()
@@ -1092,6 +1107,212 @@ function DebugSystem:registerSubMenus()
     for _, border in ipairs(TableUtils.removeDuplicates(borders)) do
         self:registerOption("border_menu", border, "Switch to the border \"" .. border .. "\".", function() Game:setBorder(border) end)
     end
+
+    ------------
+    self:registerMenu("actor_preview", "~ ACTOR VIEWER ~", "search")
+    self:registerMenuEntry("actor_preview", function() self:createActorViewerMenu() end)
+end
+
+--- Create actor viewer menu
+function DebugSystem:createActorViewerMenu()
+    self.menus["actor_preview"].options = {}
+
+    -- reload optiopn
+    self:registerOption("actor_preview", "Reload Actors",
+        "Reload every loaded actor file.",
+        function() return self:reloadActors() end, nil, {0.5, 0.5, 0.5, 1}
+    )
+
+    -- actor list
+    local ids = TableUtils.getKeys(Registry.actors)
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+        self:registerOption("actor_preview", id,
+            "Press CONFIRM to view this actor's sprites.\nPress MENU to reset the player's actor.",
+            function()
+                self.sprite_actor = id
+                self:setState("ACTORS")
+            end
+        )
+    end
+end
+
+---@param actor Actor
+function DebugSystem:buildSpriteList(actor)
+    local root = actor:getSpritePath()
+    local prefix = root .. "/"
+    local set = {}
+    
+    -- this is for actors that only have a sprite at the root path (like wall and starwalker in the example mod)
+    if root ~= "" and (Assets.getTexture(root) or Assets.getFrames(root)) then
+        set[""] = true
+    end
+
+    for path in pairs(Assets.data.frame_ids) do
+        if StringUtils.startsWith(path, prefix) then
+            set[path:sub(#prefix + 1)] = true
+        end
+    end
+    for _, id in pairs(Assets.texture_ids) do
+        if StringUtils.startsWith(id, prefix) and not Assets.getFramesFor(id) then
+            set[id:sub(#prefix + 1)] = true
+        end
+    end
+    for name in pairs(actor.animations or {}) do
+        set[name] = true
+    end
+    self.sprite_list = TableUtils.getKeys(set)
+    table.sort(self.sprite_list)
+end
+
+--- Filter sprites based on the search and return them as tables like { name = "name" }
+---@return table
+function DebugSystem:filterSprites()
+    local options = {}
+    for _, name in ipairs(self.sprite_list) do
+        table.insert(options, { name = name })
+    end
+    self:sortMenuOptions(options, self.sprite_search[1])
+    return options
+end
+
+--- Returns the path for the sprite
+---@param name string
+---@return string
+function DebugSystem:getSpritePath(name)
+    if name ~= "" or not self.sprite_preview then return name end
+    local parts = StringUtils.split(self.sprite_preview.actor:getSpritePath(), "/")
+    return parts[#parts] or name
+end
+
+--- Creates preview sprite for the actor
+function DebugSystem:createSpritePreview()
+    if self.sprite_preview then
+        self.sprite_preview:remove()
+        self.sprite_preview = nil
+    end
+    if not Registry.getActor(self.sprite_actor) then return end
+    self.sprite_preview = Registry.createActor(self.sprite_actor):createSprite()
+    self.sprite_preview:setOrigin(0.5, 1)
+    self.sprite_preview:setScale(2, 2)
+    self.sprite_preview:setPosition(500, 240)
+    self.sprite_preview.layer = 100
+    self:addChild(self.sprite_preview)
+end
+
+function DebugSystem:updateSpritePreview()
+    local entry = self:filterSprites()[self.current_selecting]
+    local actor = self.sprite_preview and self.sprite_preview.actor
+    self.sprite_name = entry and entry.name or nil
+    self.sprite_frame_names = {}
+
+    if actor and self.sprite_name then
+        local relative = self.sprite_name
+        local anim = actor:getAnimation(self.sprite_name)
+
+        if type(anim) == "table" and type(anim[1]) == "string" then
+            relative = anim[1]
+        end
+
+        local prefix = actor:getSpritePath() .. "/"
+        local ids = Assets.getFrameIds(prefix .. relative)
+
+        if ids then
+            for i, id in ipairs(ids) do
+                self.sprite_frame_names[i] = StringUtils.startsWith(id, prefix) and id:sub(#prefix + 1) or id
+            end
+        end
+    end
+    
+    if not (self.sprite_preview and self.sprite_name) then return end
+    self.sprite_preview:set(self.sprite_name)
+    if not self.sprite_preview.actor:getAnimation(self.sprite_name) then
+        local frames = Assets.getFrames(self.sprite_preview.actor:getSpritePath() .. "/" .. self.sprite_name)
+        if frames and #frames > 1 then
+            self.sprite_preview:play(1 / 6, true)
+        end
+    end
+end
+
+--- Freezes the preview on the manually selected frame
+function DebugSystem:previewFrame()
+    if self.sprite_preview and self.sprite_frame_names[self.sprite_frame_index] then
+        self.sprite_preview:pause()
+        self.sprite_preview:setFrame(self.sprite_frame_index)
+    end
+end
+
+--- Get screen position of a frame in the frames list (maths 🤮🤮🤢)
+---@param index number
+---@return number x
+---@return number y
+function DebugSystem:spriteFrameCell(index)
+    return 400 + math.floor((index - 1) / 7) * 120, 272 + ((index - 1) % 7) * 18
+end
+
+--- Sets the player's actor
+---@param dark string|Actor
+---@param light string|Actor
+function DebugSystem:applyPlayerActor(dark, light)
+    Game.party[1]:setActor(dark)
+    Game.party[1]:setLightActor(light)
+    if Game.world.player then
+        Game.world.player:setActor(Game.party[1]:getActor())
+    end
+end
+
+--- Switch the player's actor to the actor thats being previewed and saves the original actors in a table
+function DebugSystem:setSpriteActor()
+    if not self.sprite_actor then return end
+    if not self.sprite_actor_reset then
+        self.sprite_actor_reset = { actor = Game.party[1].actor, lw_actor = Game.party[1].lw_actor }
+    end
+    self.sprite_switched_id = self.sprite_actor
+    self:applyPlayerActor(self.sprite_actor, self.sprite_actor)
+end
+
+--- Restores the player's original actors
+function DebugSystem:resetSpriteActor()
+    local reset = self.sprite_actor_reset
+    if not reset then return end
+    self:applyPlayerActor(reset.actor, reset.lw_actor)
+    self.sprite_actor_reset = nil
+    self.sprite_switched_id = nil
+end
+
+--- Reloads the loaded actor files
+--- This feels like a hacky way of doing this but it works so ill leave it like this tfor now
+--- If you have a better method of doing this, please tell me
+function DebugSystem:reloadActors()
+    -- adds the default location for actor scritps
+    local sources = { { Registry.base_scripts, "" } }
+
+    -- if a mod is loaded then also adds the scripts from the mod
+    if Mod then
+        table.insert(sources, { Mod.info.script_chunks, Mod.info.path .. "/" })
+        for _, lib in pairs(Mod.libs) do
+            table.insert(sources, { lib.info.script_chunks, lib.info.path .. "/" })
+        end
+    end
+
+    -- saves the loaded actors and then reloads them
+    local backup = {}
+    for _, source in ipairs(sources) do
+        for key, loaded_actor in pairs(source[1]) do
+            if key:find("data/actors/", 1, true) then
+                table.insert(backup, { source[1], key, loaded_actor })
+                local new_actor = love.filesystem.load(source[2] .. key .. ".lua")
+                source[1][key] = new_actor
+            end
+        end
+    end
+
+    Registry.initActors()
+    
+    self:createActorViewerMenu()
+    if self.sprite_switched_id then
+        self:applyPlayerActor(self.sprite_switched_id, self.sprite_switched_id)
+    end
 end
 
 function DebugSystem:isInGame()
@@ -1245,6 +1466,16 @@ function DebugSystem:registerDefaults()
         "Enter the portrait viewer menu.",
         function()
             self:setState("FACES")
+        end,
+        in_game
+    )
+
+    self:registerOption(
+        "main",
+        "Actor Viewer",
+        "Preview actor sprites and animations.",
+        function()
+            self:enterMenu("actor_preview")
         end,
         in_game
     )
@@ -1465,6 +1696,16 @@ end
 function DebugSystem:onStateChange(old, new)
     Input.gamepad_locked = false
     self.heart_target_x = -10
+    if old == "ACTORS" and new ~= "ACTORS" then
+        if TextInput.active then TextInput.endInput() end
+        self.sprite_index = self.current_selecting
+        self.sprite_frame_mode = false
+        self.heart:setSprite("player/heart_menu")
+        if self.sprite_preview then
+            self.sprite_preview:remove()
+            self.sprite_preview = nil
+        end
+    end
     if new == "MENU" then
         self.heart_target_x = 19
         self.heart_target_y = 35 + 32
@@ -1474,6 +1715,11 @@ function DebugSystem:onStateChange(old, new)
         end
         self.circle_anim_timer = 0
         OVERLAY_OPEN = true
+
+        if old == "ACTORS" then
+            self.current_selecting = self.sprite_actor_menu_index
+            self:updateBounds(self:getValidOptions())
+        end
 
         Kristal.showCursor()
         --love.keyboard.setKeyRepeat(true) -- TODO: Text repeat stack
@@ -1492,6 +1738,24 @@ function DebugSystem:onStateChange(old, new)
         --love.keyboard.setKeyRepeat(false)
     elseif new == "FACES" then
         Input.gamepad_locked = true
+        Kristal.showCursor()
+    elseif new == "ACTORS" then
+        OVERLAY_OPEN = true
+        if old == "MENU" then
+            self.sprite_actor_menu_index = self.current_selecting
+        end
+        self:buildSpriteList(Registry.createActor(self.sprite_actor))
+        if self.sprite_actor ~= self.sprite_last_actor then
+            self.sprite_index = 1
+            self.sprite_search = { "" }
+        end
+        self.sprite_last_actor = self.sprite_actor
+        self.current_selecting = MathUtils.clamp(self.sprite_index, 1, math.max(1, #self:filterSprites()))
+        self.sprite_frame_mode = false
+        self.heart:setSprite("player/heart_menu")
+        self:createSpritePreview()
+        self:updateSpritePreview()
+        self:updateBounds(#self:filterSprites())
         Kristal.showCursor()
     elseif new == "FLAGS" then
         self.heart_target_x = 19
@@ -1558,7 +1822,7 @@ function DebugSystem:updateBounds(options)
     local limit = is_search and 0 or 1
     if self.current_selecting < limit then self.current_selecting = options end
     if self.current_selecting > options then self.current_selecting = limit end
-    if self.state == "MENU" or self.state == "FLAGS" or self.state == "FLAG_FILTERS" then
+    if self.state == "MENU" or self.state == "FLAGS" or self.state == "FLAG_FILTERS" or (self.state == "ACTORS" and not self.sprite_frame_mode) then
         self.heart_target_x = 19
 
         local y_off = (self.current_selecting - 1) * 32
@@ -1613,6 +1877,11 @@ function DebugSystem:onKeyPressed(key, is_repeat)
 
     if self.state == "MENU" then
         local options = self:getValidOptions()
+        if self.current_menu == "actor_preview" and Input.isMenu(key) and not is_repeat then
+            Assets.playSound("ui_select")
+            self:resetSpriteActor()
+            return
+        end
         if Input.isCancel(key) and not is_repeat then
             Assets.playSound("ui_move")
             self:returnMenu()
@@ -1685,6 +1954,68 @@ function DebugSystem:onKeyPressed(key, is_repeat)
                 self:setState("MENU")
             end
             return
+        end
+    elseif self.state == "ACTORS" then
+        if self.sprite_frame_mode then
+            if Input.isCancel(key) and not is_repeat then
+                self.sprite_frame_mode = false
+                self.heart:setSprite("player/heart_menu")
+                self:updateSpritePreview()
+                self:updateBounds(#self:filterSprites())
+                Assets.playSound("ui_move")
+            elseif Input.is("up", key) or Input.is("down", key) then
+                self.sprite_frame_index = MathUtils.wrapIndex(self.sprite_frame_index + (Input.is("down", key) and 1 or -1), #self.sprite_frame_names)
+                self:previewFrame()
+                Assets.playSound("ui_move")
+            end
+            return
+        end
+
+        if Input.isCancel(key) and not is_repeat then
+            Assets.playSound("ui_move")
+            self:setState("MENU")
+        elseif Input.isMenu(key) and not is_repeat then
+            self:setSpriteActor()
+            Assets.playSound("ui_select")
+        elseif Input.isConfirm(key) and not is_repeat then
+            if self.current_selecting == 0 then
+                Assets.playSound("ui_select")
+
+                -- basically just self:startTextInput() but modified a bit
+                TextInput.attachInput(self.sprite_search, { multiline = false, enter_submits = true, clear_after_submit = false })
+                TextInput.submit_callback = function()
+                    Assets.playSound("ui_select")
+                    self:updateBounds(#self:filterSprites())
+                    self:updateSpritePreview()
+                    TextInput.endInput()
+                end
+                Input.clear("down")
+                TextInput.pressed_callback = function(key)
+                    if not Input.shouldProcess(key) then return end
+                    if key == "down" then
+                        TextInput.endInput()
+                        if self.current_selecting < #self:filterSprites() then
+                            Assets.playSound("ui_move")
+                            self.current_selecting = self.current_selecting + 1
+                        end
+                        self:updateSpritePreview()
+                    end
+                end
+                
+            elseif #self.sprite_frame_names > 1 then
+                self.sprite_frame_mode = true
+                self.sprite_frame_index = MathUtils.clamp(math.floor(self.sprite_preview and self.sprite_preview.frame or 1), 1, #self.sprite_frame_names)
+                self.heart:setSprite("player/heart_menu_small")
+                self:previewFrame()
+                Assets.playSound("ui_select")
+            else
+                Assets.playSound("ui_cant_select")
+            end
+        elseif Input.is("up", key) or Input.is("down", key) then
+            self.current_selecting = self.current_selecting + (Input.is("down", key) and 1 or -1)
+            self:updateBounds(#self:filterSprites())
+            self:updateSpritePreview()
+            Assets.playSound("ui_move")
         end
     elseif self.state == "FLAGS" then
         if not Game.flags then
@@ -1824,6 +2155,12 @@ end
 function DebugSystem:update()
     local stage = self:getStage()
 
+    if self.state == "ACTORS" and self.sprite_frame_mode then
+        local frame_x, frame_y = self:spriteFrameCell(self.sprite_frame_index)
+        self.heart_target_x = frame_x - 16
+        self.heart_target_y = frame_y + 9
+    end
+
     self.release_timer = self.release_timer + (DT * (stage and stage.timescale or 1))
     if self.grabbing then
         self.release_timer = 0
@@ -1949,30 +2286,7 @@ function DebugSystem:draw()
         local is_search = (self.menus[self.current_menu].type == "search")
 
         if is_search then
-            local line_width = 320
-            -- Get the left size of the line if it's centered
-            local x = (640 - line_width) / 2
-            local y = y_off + menu_y + 32
-
-            love.graphics.setLineWidth(2)
-            local line_x  = x
-            local line_x2 = line_x + line_width
-            local line_y  = 32 - 4 - 1 + 2
-            Draw.setColor(0, 0, 0, 1)
-            love.graphics.line(line_x + 2, y + line_y + 2, line_x2 + 2, y + line_y + 2)
-            Draw.setColor(COLORS.silver)
-            love.graphics.line(line_x, y + line_y, line_x2, y + line_y)
-
-            if TextInput.active then
-                TextInput.draw({
-                    x = x,
-                    y = y,
-                    font = self.font,
-                    print = function(text, x, y) self:printShadow(text, x, y) end,
-                })
-            else
-                self:printShadow(self.search[1], x, y, COLORS.white)
-            end
+            self:drawSearchBox(self.search, (640 - 320) / 2, y_off + menu_y + 32)
         end
 
         header_name = self.menus[self.current_menu].name
@@ -2119,6 +2433,42 @@ function DebugSystem:draw()
         Draw.popScissor()
 
         self:printShadow(name, 0, 480 - 32, COLORS.gray, "center", 640)
+    elseif self.state == "ACTORS" then
+        header_name = "~ ACTOR VIEWER - " .. string.upper(self.sprite_actor) .. " ~"
+        Draw.setColor(0, 0, 0, 0.5)
+        love.graphics.rectangle("fill", 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
+        Draw.setColor(1, 1, 1, 1)
+        self:drawSearchBox(self.sprite_search, (640 - 320) / 2, y_off + menu_y + 32)
+
+        Draw.pushScissor()
+        Draw.scissor(text_offset + 19, y_off + menu_y + 16 + 64, 340, 320 + 48 - 64)
+        for index, entry in ipairs(self:filterSprites()) do
+            self:printShadow(self:getSpritePath(entry.name), text_offset + 19, y_off + menu_y + (index - 1) * 32 + 16 + 64 + self.menu_y)
+        end
+        Draw.popScissor()
+
+        Draw.setColor(0.4, 0.4, 0.4, 1)
+        love.graphics.setLineWidth(2)
+        love.graphics.line(460, 240, 540, 240)
+        love.graphics.line(500, 234, 500, 246)
+
+        self:printShadow(self.sprite_actor, 400, 252, COLORS.white, nil, nil, 0.5, 0.5)
+        if #self.sprite_frame_names > 1 then
+            local active = self.sprite_frame_mode and self.sprite_frame_index or math.floor(self.sprite_preview and self.sprite_preview.frame or 1)
+            for i, frame_name in ipairs(self.sprite_frame_names) do
+                local frame_x, frame_y = self:spriteFrameCell(i)
+                local color = i == active and {1, 1, 0, 1} or {0.5, 0.5, 0, 1}
+                self:printShadow(frame_name, frame_x, frame_y, color, nil, nil, 0.5, 0.5)
+            end
+        elseif self.sprite_name then
+            self:printShadow(self:getSpritePath(self.sprite_name), 400, 272, { 1, 1, 0, 1 }, nil, nil, 0.5, 0.5)
+        end
+
+        local hint = self.sprite_frame_mode and "Press CANCEL to go back." or "Press CONFIRM to browse frames.\nPress MENU to switch player to this actor"
+        local _, wrapped = self.font:getWrap(hint, 580)
+        for i, line in ipairs(wrapped) do
+            self:printShadow(line, 0, 480 + (32 * i) - (32 * (#wrapped + 1)), COLORS.gray, "center", 640)
+        end
     elseif self.state == "FLAGS" then
         header_name = "~ FLAG EDITOR ~"
         Draw.setColor(0, 0, 0, 0.5)
@@ -2381,6 +2731,30 @@ function DebugSystem:printShadow(text, x, y, color, align, limit, sx, sy)
     -- Draw the main text
     Draw.setColor(color)
     love.graphics.printf(text, x, y, limit or self.font:getWidth(text), align or "left", 0, sx or 1, sy or sx or 1)
+end
+
+--- Custom method to draw the search boxes, its a bit modified from the original, and since its used twice i decided to 
+--- just make it a new method instead of keeping the code in its original place
+---@param tbl string[]
+---@param x number
+---@param y number
+function DebugSystem:drawSearchBox(tbl, x, y)
+    love.graphics.setLineWidth(2)
+    Draw.setColor(0, 0, 0, 1)
+    love.graphics.line(x + 2, y + 31, x + 322, y + 31)
+    Draw.setColor(COLORS.silver)
+    love.graphics.line(x, y + 29, x + 320, y + 29)
+
+    if TextInput.active then
+        TextInput.draw({
+            x = x,
+            y = y,
+            font = self.font,
+            print = function(text, px, py) self:printShadow(text, px, py) end
+        })
+    else
+        self:printShadow(tbl[1], x, y, COLORS.white)
+    end
 end
 
 return DebugSystem

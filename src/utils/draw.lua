@@ -433,7 +433,7 @@ function Draw.printOutline(text, x, y, offset, align, limit, color)
     local width = love.graphics.getFont():getWidth(Utils.getCombinedText(text))
     color = color or {0, 0, 0, a}
 
-    love.graphics.setColor(color)
+    love.graphics.setColor(TableUtils.unpack(color))
     for ox = -1, 1 do
         for oy = -1, 1 do
             if ox ~= 0 or oy ~= 0 then
