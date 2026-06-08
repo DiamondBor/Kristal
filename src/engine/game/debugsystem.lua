@@ -1131,7 +1131,6 @@ function DebugSystem:createActorViewerMenu()
             "Press CONFIRM to view this actor's sprites.\nPress MENU to reset the player's actor.",
             function()
                 self.sprite_actor = id
-                self.current_selecting = 0
                 self:setState("ACTORS")
             end
         )
@@ -1318,7 +1317,7 @@ function DebugSystem:reloadActors()
     -- reload sprite
     if self.sprite_actor then
         self:buildSpriteList(Registry.createActor(self.sprite_actor))
-        self.current_selecting = MathUtils.clamp(self.current_selecting, 1, math.max(1, #self:filterSprites())) -- just incase the list length changed
+        self.current_selecting = 0 --MathUtils.clamp(self.current_selecting, 1, math.max(1, #self:filterSprites()))
         self:createSpritePreview()
         self:updateSpritePreview()
         self:updateBounds(#self:filterSprites())
@@ -1760,7 +1759,7 @@ function DebugSystem:onStateChange(old, new)
             self.sprite_search = { "" }
         end
         self.sprite_last_actor = self.sprite_actor
-        self.current_selecting = MathUtils.clamp(self.sprite_index, 1, math.max(1, #self:filterSprites()))
+        self.current_selecting = 0 --MathUtils.clamp(self.sprite_index, 1, math.max(1, #self:filterSprites()))
         self.sprite_frame_mode = false
         self.heart:setSprite("player/heart_menu")
         self:createSpritePreview()
