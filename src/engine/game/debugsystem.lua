@@ -1317,7 +1317,7 @@ function DebugSystem:reloadActors()
     -- reload sprite
     if self.sprite_actor then
         self:buildSpriteList(Registry.createActor(self.sprite_actor))
-        self.current_selecting = 0 --MathUtils.clamp(self.current_selecting, 1, math.max(1, #self:filterSprites()))
+        self.current_selecting = MathUtils.clamp(self.current_selecting, 1, math.max(1, #self:filterSprites()))
         self:createSpritePreview()
         self:updateSpritePreview()
         self:updateBounds(#self:filterSprites())
