@@ -564,6 +564,7 @@ function World:spawnPlayer(...)
     local args = { ... }
 
     local x, y = 0, 0
+    local state = "WALK"
     local chara = self.player and self.player.actor
     local party
     if #args > 0 then
@@ -572,9 +573,14 @@ function World:spawnPlayer(...)
             chara = args[3] or chara
             party = args[4]
         elseif type(args[1]) == "string" then
-            x, y = self.map:getMarker(args[1])
+            local data
+            x, y, data = self.map:getMarker(args[1])
             chara = args[2] or chara
             party = args[3]
+
+            if data ~= nil then
+                state = data.player_state or "WALK"
+            end
         end
     end
 
@@ -592,6 +598,7 @@ function World:spawnPlayer(...)
     self.player = Player(chara, x, y)
     self.player.layer = self.map.object_layer
     self.player:setFacing(facing)
+    self.player:setState(state)
     self:addChild(self.player)
 
     if party then
@@ -859,15 +866,17 @@ function World:partyReact(party_member, text, display_time)
     end
 end
 
---- Gets a specific event present in the current map
----@param id string|number  The unique numerical id of an event OR the text id of an event type to get the first instance of
----@return Event event The event instnace, or `nil` if it was not found
+--- Gets a specific event present in the current map.
+---
+--- If multiple objects are found (if you pass in a name), only the first will be returned. Use `Map:getEvents` to get all of them.
+---@param id string|number|TiledObjectRef The id of the event to search for, either as a string or a number
+---@return Event event The name of the event, the unique numerical ID, or a Tiled object reference.
 function World:getEvent(id)
     return self.map:getEvent(id)
 end
 
---- Gets a list of all instances of one type of event in the current maps
----@param name? string The text id of the event to search for, fetches every event if `nil`
+--- Gets all instances of an event present in the current map.
+---@param name? string The text id of the event to search for. If left unspecified, all events will be returned.
 ---@return Event[] events A table containing every instance of the event in the current map
 function World:getEvents(name)
     return self.map:getEvents(name)
