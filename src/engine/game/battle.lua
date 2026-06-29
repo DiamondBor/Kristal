@@ -411,7 +411,7 @@ function Battle:getState()
 end
 
 --- Returns the current substate of the battle.
----@return BattleSubState
+---@return string
 function Battle:getSubState()
     return self.substate
 end
@@ -3518,7 +3518,7 @@ end
 
 --- Checks if the current encounter has reduced tension.
 --- By default, this redirects to Encounter
---- @return boolean reduced Whether the encounter has reduced tension.
+---@return boolean reduced Whether the encounter has reduced tension.
 function Battle:hasReducedTension()
     return self.encounter:hasReducedTension()
 end

@@ -29,8 +29,8 @@ end
 ---
 --- Checks if a number is an integer.
 ---
---- @param value number # The number to check.
---- @return boolean is_integer # Whether the value is an integer or not.
+---@param value number # The number to check.
+---@return boolean is_integer # Whether the value is an integer or not.
 ---
 function MathUtils.isInteger(value)
     return (math.floor(value) == value)
@@ -380,7 +380,7 @@ function MathUtils.xor(...)
 end
 
 ---
----Lerps between two angles properly accounting for wrap arounds
+--- Lerps between two angles properly accounting for wrap arounds
 ---
 ---@param from number # The starting angle (in radians)
 ---@param to number # The target angle (in radians)
