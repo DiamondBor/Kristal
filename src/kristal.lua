@@ -163,6 +163,7 @@ function love.load(args)
     Kristal.ChapterConfigs[2] = JSON.decode(love.filesystem.read("configs/chapter2.json"))
     Kristal.ChapterConfigs[3] = JSON.decode(love.filesystem.read("configs/chapter3.json"))
     Kristal.ChapterConfigs[4] = JSON.decode(love.filesystem.read("configs/chapter4.json"))
+    Kristal.ChapterConfigs[5] = JSON.decode(love.filesystem.read("configs/chapter5.json"))
 
     -- initialize overlay
     Kristal.Overlay:init()
@@ -1327,6 +1328,11 @@ function Kristal.quickReload(mode)
         error("Attempt to reload while loading")
     end
 
+    local dev_debug_override = DEBUG_OVERRIDE
+    local dev_fast_forward = FAST_FORWARD
+    local dev_debug_render = DEBUG_RENDER
+    local dev_noclip = NOCLIP
+
     -- Temporarily save game variables
     local save, save_id, encounter, shop
     if mode == "temp" then
@@ -1373,6 +1379,13 @@ function Kristal.quickReload(mode)
                     else
                         -- Switch to Game
                         Kristal.setState(Game)
+                    end
+
+                    if Kristal.isDevMode() then
+                        DEBUG_OVERRIDE = dev_debug_override
+                        FAST_FORWARD = dev_fast_forward
+                        DEBUG_RENDER = dev_debug_render
+                        NOCLIP = dev_noclip
                     end
                 end
             end)
