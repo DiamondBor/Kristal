@@ -1,3 +1,4 @@
+local LoadingMode = require("src.engine.loading.LoadingMode")
 ---@class Kristal
 ---@field Console Console
 ---@field DebugSystem DebugSystem
@@ -12,6 +13,7 @@ else
     Kristal.Shaders = require("src.engine.shaders")
     Kristal.States = {
         ["Loading"] = require("src.engine.loadstate"),
+        ["ProjectLoading"] = require("src.engine.projectloadstate"),
         ["MainMenu"] = require("src.engine.menu.mainmenu"),
         ["Game"] = require("src.engine.game.game"),
         ["Testing"] = require("src.teststate"),
@@ -184,6 +186,7 @@ function love.load(args)
     -- start load thread
     Kristal.Loader.in_channel = love.thread.getChannel("load_in")
     Kristal.Loader.out_channel = love.thread.getChannel("load_out")
+    Kristal.Loader.in_channel:push({ config = Kristal.Config })
 
     Kristal.Loader.thread = love.thread.newThread("src/engine/loadthread.lua")
     Kristal.Loader.thread:start()
@@ -196,6 +199,8 @@ function love.load(args)
         Kristal.HTTPS.thread = love.thread.newThread("src/engine/httpsthread.lua")
         Kristal.HTTPS.thread:start()
     end
+
+    Assets.init()
 
     -- TARGET_MOD being already set -> project developer has
     -- a preference for auto mod start. We particularly wouldn't
@@ -1283,6 +1288,7 @@ function Kristal.clearModState()
 
     -- Restore assets and registry
     Assets.restoreData()
+    Assets.getBucket("project"):unload()
     Registry.restoreData()
 
     -- force garbage collection
@@ -1397,6 +1403,24 @@ end
 ---@param paths? string|table The specific asset paths to load.
 ---@param after? function     The function to call when done.
 function Kristal.loadAssets(dir, loader, paths, after)
+    if loader ~= "mods" then
+        if dir == "" then
+            local engine_bucket = Assets.getBucket("engine")
+            if engine_bucket.state == AssetBucket.State.UNLOADED then
+                local path_list = type(paths) == "string" and { paths } or (paths or { "" })
+                local asset_paths = {}
+                for i, path in ipairs(path_list) do
+                    asset_paths[i] = path ~= "" and (path .. "/assets") or "assets"
+                end
+                engine_bucket:startLoading(asset_paths)
+            end
+        end
+        if after then
+            after()
+        end
+        return
+    end
+
     Kristal.Loader.message = ""
     Kristal.Overlay.setLoading(true)
     Kristal.Loader.waiting = Kristal.Loader.waiting + 1
@@ -1513,30 +1537,28 @@ function Kristal.loadModAssets(id, asset_type, asset_paths, after)
     -- No project found; nothing to load
     if not mod then return end
 
-    -- How many assets we need to load (1 for the project, 1 for each library)
-    local load_count = 1 + #mod.lib_order
-
     -- Begin project loading
     MOD_LOADING = true
 
-    local function finishLoadStep()
-        -- Finish one load process
-        load_count = load_count - 1
-        -- Check if all load processes are done (project and libraries)
-        if load_count == 0 then
-            -- Finish project loading
-            MOD_LOADING = false
-
-            -- Call the after function
-            after()
-        end
+    local project_bucket = Assets.getBucket("project")
+    if project_bucket.state ~= AssetBucket.State.UNLOADED then
+        project_bucket:unload()
     end
 
-    -- Finally load all assets (libraries first)
+    local paths_to_load = {}
     for _, lib_id in ipairs(mod.lib_order) do
-        Kristal.loadAssets(mod.libs[lib_id].path, asset_type or "all", asset_paths or "", finishLoadStep)
+        table.insert(paths_to_load, mod.libs[lib_id].path .. "/assets")
     end
-    Kristal.loadAssets(mod.path, asset_type or "all", asset_paths or "", finishLoadStep)
+    table.insert(paths_to_load, mod.path .. "/assets")
+
+    project_bucket:startLoading(paths_to_load)
+
+    if Kristal.Config["projectLoadingMode"] == LoadingMode.FULL then
+        Kristal.setState("ProjectLoading", after)
+    else
+        MOD_LOADING = false
+        after()
+    end
 end
 
 local function shouldWindowUseModBranding()
@@ -1851,6 +1873,7 @@ function Kristal.getDefaultConfig()
         defaultName = "",
         skipNameEntry = false,
         verboseLoader = false,
+        projectLoadingMode = LoadingMode.SEMI_LAZY,
         brokenMenuBoxes = false
     }
 
