@@ -234,6 +234,7 @@ function love.quit()
     if Kristal.Loader.thread and Kristal.Loader.thread:isRunning() then
         Kristal.Loader.in_channel:push("stop")
     end
+    Assets.stopDecodeThreads()
     if Kristal.HTTPS.thread and Kristal.HTTPS.thread:isRunning() then
         Kristal.HTTPS.in_channel:push("stop")
     end

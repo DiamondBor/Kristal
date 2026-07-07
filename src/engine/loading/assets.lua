@@ -13,6 +13,12 @@ local LoadingMode = require("src.engine.loading.LoadingMode")
 ---
 ---@field saved_data table?
 ---
+---@field decode_threads love.Thread[]?
+---@field decode_in love.Channel
+---@field decode_out love.Channel
+---@field decode_pending table
+---@field decode_pending_count number
+---
 local Assets = {}
 local self = Assets
 
@@ -73,7 +79,37 @@ function Assets.init()
         AssetBucket("engine", { "assets" }),
         AssetBucket("project", { "assets" }),
     }
+    if not self.decode_threads then
+        self.decode_in = love.thread.getChannel("asset_decode_in")
+        self.decode_out = love.thread.getChannel("asset_decode_out")
+        self.decode_pending = {}
+        self.decode_pending_count = 0
+        self.decode_threads = {}
+        for i = 1, math.min(math.max(love.system.getProcessorCount() - 1, 1), 4) do
+            self.decode_threads[i] = love.thread.newThread("src/engine/loading/decodethread.lua")
+            self.decode_threads[i]:start()
+        end
+    end
     self.getBucket("engine"):startLoading({ "assets" })
+end
+
+---@return table pending
+---|string
+---|boolean
+function Assets.getDecodePending(bucket_id, asset_type)
+    if not self.decode_pending[bucket_id] then
+        self.decode_pending[bucket_id] = {}
+    end
+    if not self.decode_pending[bucket_id][asset_type] then
+        self.decode_pending[bucket_id][asset_type] = {}
+    end
+    return self.decode_pending[bucket_id][asset_type]
+end
+
+function Assets.stopDecodeThreads()
+    for _ = 1, #(self.decode_threads or {}) do
+        self.decode_in:push("stop")
+    end
 end
 
 ---@return integer, integer
@@ -329,23 +365,70 @@ function Assets.update()
     if Kristal.Config["projectLoadingMode"] == LoadingMode.LAZY then
         return
     end
-    -- TODO: Make background loading happen on loadthread. Currently this can cause stutters when loading large assets
+
     local time = love.timer.getTime()
-    for _,bucket in ipairs(self.buckets) do
+    local busy = false
+
+    -- create assets whose files were decoded by the worker threads
+    while not busy do
+        local msg = self.decode_out:pop()
+        if not msg then break end
+        self.decode_pending_count = self.decode_pending_count - 1
+        self.getDecodePending(msg.bucket, msg.type)[msg.id] = nil
+        local bucket = self.getBucket(msg.bucket)
+        if bucket.state == AssetBucket.State.LOADING and self.getQueue(msg.bucket, msg.type)[msg.id] then
+            bucket:get(msg.type, msg.id, msg.results)
+            if Kristal.Config["verboseLoader"] then
+                Kristal.Loader.message = string.format("%s/%s: %s", msg.bucket, msg.type, msg.id)
+            end
+        end
+        busy = (love.timer.getTime() - time) + love.timer.getDelta() > 0.5/30
+    end
+
+    for _, bucket in ipairs(self.buckets) do
         if bucket.state == AssetBucket.State.LOADING then
+            local remaining = false
             for asset_type, queue in pairs(self.queued_tasks[bucket.bucket_id] or {}) do
-                for asset_id in pairs(queue) do
-                    bucket:get(asset_type, asset_id)
-                    if (love.timer.getTime() - time) + love.timer.getDelta() > 0.5/30 then
-                        if Kristal.Config["verboseLoader"] then
-                            Kristal.Loader.message = string.format("%s/%s: %s", bucket.bucket_id, asset_type, asset_id)
+                local loader = AssetLoaders.get(asset_type)
+                local pending = self.getDecodePending(bucket.bucket_id, asset_type)
+                for asset_id, task in pairs(queue) do
+                    if pending[asset_id] then
+                        remaining = true
+                    else
+                        local files = loader:getDecodeJobs(task)
+                        if files then
+                            remaining = true
+                            -- 128 is the number of maximum pending decodes 
+                            if self.decode_pending_count < 128 then
+                                self.decode_in:push({ bucket = bucket.bucket_id, type = asset_type, id = asset_id, files = files })
+                                pending[asset_id] = true
+                                self.decode_pending_count = self.decode_pending_count + 1
+                            end
+                        elseif busy then
+                            remaining = true
+                        else
+                            bucket:get(asset_type, asset_id)
+                            if Kristal.Config["verboseLoader"] then
+                                Kristal.Loader.message = string.format("%s/%s: %s", bucket.bucket_id, asset_type, asset_id)
+                            end
+                            busy = (love.timer.getTime() - time) + love.timer.getDelta() > 0.5/30
                         end
-                        Kristal.Overlay.setLoading(true)
-                        return
                     end
                 end
             end
-            bucket.state = AssetBucket.State.LOADED
+            if not remaining then
+                bucket.state = AssetBucket.State.LOADED
+                if Kristal.Config["verboseLoader"] and bucket.load_start_time then
+                    print(string.format("[Assets] Bucket '%s': loaded %d assets in %.1fms", bucket.bucket_id, bucket.assets_loaded, (love.timer.getTime() - bucket.load_start_time) * 1000))
+                end
+            end
+        end
+    end
+
+    for _, bucket in ipairs(self.buckets) do
+        if bucket.state == AssetBucket.State.LOADING then
+            Kristal.Overlay.setLoading(true)
+            return
         end
     end
     Kristal.Loader.message = ""
@@ -460,14 +543,16 @@ function Assets.getTextureID(texture)
     if type(texture) == "string" then
         return texture
     end
+    if self.texture_ids[texture] then
+        return self.texture_ids[texture]
+    end
     for bucket_n = #Assets.buckets, 1, -1 do
         for sprite_id, sprite in pairs(Assets.buckets[bucket_n].loaded_assets.sprite or {}) do
             for frame_n = 1, #sprite.textures do
                 if texture == sprite.textures[frame_n] then
-                    if #sprite.textures == 1 then
-                        return sprite_id
-                    end
-                    return sprite_id .. "_" .. frame_n
+                    local id = #sprite.textures == 1 and sprite_id or (sprite_id .. "_" .. frame_n)
+                    self.texture_ids[texture] = id
+                    return id
                 end
             end
         end

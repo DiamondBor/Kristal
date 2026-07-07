@@ -32,9 +32,15 @@ function SpriteAssetLoader:init(valid_subfolders, valid_extensions)
     end
 end
 
+local split_id_cache, split_frame_cache = {}, {}
+
 ---@return string identifier
 ---@return integer? split_frame
 function SpriteAssetLoader.splitIdentifier(full_identifier)
+    local cached = split_id_cache[full_identifier]
+    if cached then
+        return cached, split_frame_cache[full_identifier]
+    end
     local identifier, split_frame = full_identifier, 1
     local _, _, reverse_frame, reverse_identifier = string.find(string.reverse(full_identifier), "^(%d+)_?([^/]+.*)")
     if reverse_frame and reverse_identifier then
@@ -42,8 +48,10 @@ function SpriteAssetLoader.splitIdentifier(full_identifier)
         split_frame = math.floor(assert(tonumber(string.reverse(reverse_frame))))
     end
     if split_frame < 1 then
-        return full_identifier
+        identifier, split_frame = full_identifier, nil
     end
+    split_id_cache[full_identifier] = identifier
+    split_frame_cache[full_identifier] = split_frame
     return identifier, split_frame
 end
 
@@ -85,7 +93,16 @@ function SpriteAssetLoader:beginLoad(file, queue)
     end
 end
 
-function SpriteAssetLoader:load(asset_id, task)
+---@param task SpriteAssetLoader.Task
+function SpriteAssetLoader:getDecodeJobs(task)
+    local files = {}
+    for i, frame_data in ipairs(task.frames) do
+        files[i] = { kind = "image", path = frame_data.path }
+    end
+    return files
+end
+
+function SpriteAssetLoader:load(asset_id, task, predecoded)
     ---@type SpriteAssetLoader.TaskResult
     local result = {
         texture_data = {},
@@ -96,7 +113,7 @@ function SpriteAssetLoader:load(asset_id, task)
     for _, frame_data in ipairs(task.frames) do
         assert(result.texture_data[frame_data.frame] == nil, string.format("Duplicate frame index %d on %s", frame_data.frame, asset_id))
 
-        local image_data = love.image.newImageData(frame_data.path)
+        local image_data = predecoded and predecoded[frame_data.path] or love.image.newImageData(frame_data.path)
 
         result.texture_data[frame_data.frame] = image_data
         result.texture_paths[frame_data.frame] = frame_data.path
@@ -121,6 +138,7 @@ end
 function SpriteAssetLoader:apply(asset_id, output)
     local textures = {}
     local texture_datas = {}
+    local single_frame = #output.texture_data == 1
 
     -- Now on the main thread, create textures from the loaded data
     for i, data in ipairs(output.texture_data) do
@@ -133,6 +151,8 @@ function SpriteAssetLoader:apply(asset_id, output)
         textures[i] = texture
 
         texture_datas[i] = texture_data
+
+        Assets.texture_ids[texture] = single_frame and asset_id or (asset_id .. "_" .. i)
     end
 
     return {

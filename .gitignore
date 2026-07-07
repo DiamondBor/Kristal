@@ -10,3 +10,4 @@ output/
 *.tiled-session
 
 docs.json
+/sharedlibs

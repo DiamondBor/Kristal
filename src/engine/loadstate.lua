@@ -17,6 +17,8 @@ function Loading:enter(from, dir)
     Mod = nil
     MOD_PATH = nil
 
+    self.enter_time = love.timer.getTime()
+
     self.loading_state = Loading.States.WAITING
 
     self.animation_done = false
@@ -81,6 +83,10 @@ function Loading:update()
     if (self.loading_state == Loading.States.DONE) and (loaded >= total or Kristal.Config["projectLoadingMode"] == LoadingMode.LAZY) and self.key_check and (self.animation_done or Kristal.Config["skipIntro"]) then
         -- We're done loading! This should only happen once.
         self.done_loading = true
+
+        if Kristal.Config["verboseLoader"] then
+            print(string.format("[Assets] Loading finished in %.1fms (%d/%d assets loaded)", (love.timer.getTime() - self.enter_time) * 1000, loaded, total))
+        end
 
         if Kristal.Args["test"] and (not RELEASE_MODE) then
             Kristal.setState("Testing")

@@ -15,10 +15,19 @@ function AssetLoader:beginLoad(file, queue) end
 
 ---@param asset_id string
 ---@param task TTask
+---@param predecoded table? Data decoded ahead of time by a worker thread, keyed by file path
+---|string
+---|love.Data
 ---@return TTaskResult
-function AssetLoader:load(asset_id, task)
+function AssetLoader:load(asset_id, task, predecoded)
     error(ClassUtils.getClassName(self) .. " has not overriden load!")
 end
+
+--- Files that this loader wants decoded on a worker thread ahead of load().
+--- Loaders that return nil are loaded synchronously
+---@param task TTask
+---@return {kind: "image"|"sound", path: string}[]? files
+function AssetLoader:getDecodeJobs(task) end
 
 ---@param asset_id string
 ---@param output TTaskResult

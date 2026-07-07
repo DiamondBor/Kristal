@@ -26,14 +26,21 @@ function SoundAssetLoader:beginLoad(file, queue)
     end
 end
 
-function SoundAssetLoader:load(asset_id, task)
+---@param task SoundAssetLoader.Task
+function SoundAssetLoader:getDecodeJobs(task)
+    if not task.source_path then
+        return nil
+    end
+    return { { kind = "sound", path = task.source_path } }
+end
+
+function SoundAssetLoader:load(asset_id, task, predecoded)
     assert(task.source_path)
     ---@type SoundAssetLoader.Result
     local result = {
-        sound_data = love.sound.newSoundData(task.source_path),
+        sound_data = predecoded and predecoded[task.source_path] or love.sound.newSoundData(task.source_path),
         metadata = task.metadata_path and JSON.decode(love.filesystem.read(task.metadata_path)) or nil,
     }
-
     return result
 end
 

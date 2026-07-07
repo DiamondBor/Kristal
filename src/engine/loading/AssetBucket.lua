@@ -35,6 +35,7 @@ end
 function AssetBucket:startLoading(paths)
     assert(self.state == AssetBucket.State.UNLOADED, "Can't load a bucket that's already loaded")
     self.state = AssetBucket.State.LOADING
+    self.load_start_time = love.timer.getTime()
     self.paths = paths or self.paths
     for _, asset_search_path in ipairs(self.paths) do
         for asset_type, loader in AssetLoaders.iterLoaders() do
@@ -54,8 +55,11 @@ function AssetBucket:startLoading(paths)
         end
     end
     for asset_type, _ in pairs(Assets.queued_tasks[self.bucket_id]) do
-        
+
         self.assets_total = self.assets_total + TableUtils.getKeyCount(Assets.getQueue(self.bucket_id, asset_type))
+    end
+    if Kristal.Config["verboseLoader"] then
+        print(string.format("[Assets] Bucket '%s' scanned %d assets in %.1fms", self.bucket_id, self.assets_total, (love.timer.getTime() - self.load_start_time) * 1000))
     end
 end
 
@@ -84,7 +88,10 @@ end
 ---@internal
 ---@param asset_type string
 ---@param asset_id string
-function AssetBucket:get(asset_type, asset_id)
+---@param predecoded table?  Data decoded ahead of time by a worker thread, keyed by file path
+---|string
+---|love.Data
+function AssetBucket:get(asset_type, asset_id, predecoded)
     if self.state == AssetBucket.State.UNLOADED then
         error(string.format("Attempt to get asset from bucket '%s' while it's unloaded", self.bucket_id), 2)
     end
@@ -95,7 +102,7 @@ function AssetBucket:get(asset_type, asset_id)
         local loader = AssetLoaders.get(asset_type)
         local result, final
         local ok, traceback = xpcall(function()
-            result = loader:load(asset_id, Assets.getQueue(self.bucket_id, asset_type)[asset_id])
+            result = loader:load(asset_id, Assets.getQueue(self.bucket_id, asset_type)[asset_id], predecoded)
             final = loader:apply(asset_id, result)
         end, debug.traceback)
         if not ok then error({ msg = string.format("While loading %s %s:\n%s", asset_type, asset_id, traceback) }) end
