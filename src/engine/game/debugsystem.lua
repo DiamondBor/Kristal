@@ -955,7 +955,7 @@ function DebugSystem:registerSubMenus()
         end
     )
 
-    for id, _ in pairs(Assets.sounds) do
+    for id in Assets.iterate("sound") do
         self:registerOption(
             "sound_test",
             id,
@@ -995,7 +995,7 @@ function DebugSystem:registerSubMenus()
         end
     )
 
-    for id, _ in pairs(Assets.data.music) do
+    for id in Assets.iterate("music") do
         self:registerOption(
             "music_test",
             id,
@@ -1146,15 +1146,8 @@ function DebugSystem:buildSpriteList(actor)
         set[""] = true
     end
 
-    for path in pairs(Assets.data.frame_ids) do
-        if StringUtils.startsWith(path, prefix) then
-            set[path:sub(#prefix + 1)] = true
-        end
-    end
-    for _, id in pairs(Assets.texture_ids) do
-        if StringUtils.startsWith(id, prefix) and not Assets.getFramesFor(id) then
-            set[id:sub(#prefix + 1)] = true
-        end
+    for path in Assets.iterate("sprite", prefix) do
+        set[path:sub(#prefix + 1)] = true
     end
     for name in pairs(actor.animations or {}) do
         set[name] = true
@@ -2353,10 +2346,8 @@ function DebugSystem:draw()
         Draw.setColor(1, 1, 1, 1)
 
         local textures = {}
-        for _, id in pairs(Assets.texture_ids) do
-            if StringUtils.startsWith(id, "face/") then
-                table.insert(textures, id:sub(6))
-            end
+        for id in Assets.iterate("sprite", "face/") do
+            table.insert(textures, id:sub(6))
         end
 
         -- Sort textures alphabetically

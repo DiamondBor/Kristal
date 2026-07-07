@@ -129,8 +129,8 @@ end
 function Sprite:hasSprite(texture)
     texture = self:getPath(texture)
 
-    -- check this out
-    return not not (Assets.getTexture(texture) or Assets.getFrames(texture))
+    local frames_for = Assets.getFramesFor(texture)
+    return Assets.hasSprite(texture) or (frames_for and Assets.hasSprite(frames_for))
 end
 
 ---@param texture string  The texture to check against this sprite's current texture, relative to this sprite's path.
@@ -158,7 +158,7 @@ function Sprite:setSprite(texture, keep_anim)
     if type(texture) == "string" then
         texture = self:getPath(texture)
     end
-    if type(texture) == "table" or (type(texture) == "string" and Assets.getFrames(texture)) then
+    if type(texture) == "table" or (type(texture) == "string" and Assets.hasSprite(texture)) then
         self:setFrames(texture, keep_anim)
     else
         self:setTexture(texture, keep_anim)
@@ -180,7 +180,13 @@ end
 --- *(Called internally)* Sets the current sprite to a single texture. \
 --- **Note**: *Only for internal overrides. Use `Sprite:setSprite()` instead.*
 function Sprite:setTextureExact(texture)
+    local texture_path = type(texture) == "string" and texture or nil
     if type(texture) == "string" then
+        if texture == "" then
+            self.texture = nil
+            self.texture_path = ""
+            return
+        end
         self.texture = Assets.getTexture(texture)
     else
         self.texture = texture
@@ -188,7 +194,7 @@ function Sprite:setTextureExact(texture)
     if (not self.texture) and (texture ~= nil) then
         Kristal.Console:warn("Texture not found: " .. TableUtils.dump(texture))
     end
-    self.texture_path = Assets.getTextureID(texture)
+    self.texture_path = texture_path or Assets.getTextureID(texture) or Assets.getTextureID(self.texture)
     if self.use_texture_size then
         if self.texture then
             self.width = self.texture:getWidth()
