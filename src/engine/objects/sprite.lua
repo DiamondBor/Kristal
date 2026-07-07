@@ -208,9 +208,9 @@ end
 
 --- Sets the frame of the current sprite. \
 --- If the sprite has no frames, this will do nothing.
----@param frame number  The frame to set the sprite to. If this is outside of the range of frames, it will wrap around.
+---@param frame number The frame to set the sprite to. If this is outside of the range of frames, it will wrap around.
 function Sprite:setFrame(frame)
-    self.frame = ((frame - 1) % (self.frames and #self.frames or 1)) + 1
+    self.frame = ((math.floor(frame) - 1) % (self.frames and #self.frames or 1)) + 1
     self:updateTexture()
 end
 
@@ -239,7 +239,7 @@ end
 
 --- Sets the animation of the current sprite. \
 --- The animation specified in `anim` can take on multiple forms:
---- - `fun(wait: fun(time: number))`    - The animation routine. Receives the animation coroutine's wait function. 
+--- - `fun(wait: fun(time: number))`    - The animation routine. Receives the animation coroutine's wait function.
 ---                                         See [`Sprite:_basicAnimation(wait)`](lua://Sprite._basicAnimation) for an example of an animation routine
 --- - `table`                           - A table of animation data, in one of these three formats:
 --- - - `string|table`                  - The name of the sprite, or a table of frames of the animation, \
@@ -248,7 +248,7 @@ end
 --- - - `string|table`                  - The name of the sprite, or a table of frames of the animation, \
 ---     `fun(wait: fun(time: number))`  - An animation routine
 --- - - `fun(wait: fun(time: number))`  - An animation routine
---- 
+---
 --- Additionally, these keys can be defined in the `anim` table for further customisation:
 --- - `duration: number`                - The time, in seconds, that the animation will run for
 --- - `callback: fun(self: Sprite)`     - A callback that will run when the sprite stops animating. Receives the sprite as an argument

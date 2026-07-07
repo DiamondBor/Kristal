@@ -198,6 +198,45 @@ function Game:registerBuiltInEvents()
         sprite:setScale(data.properties["scalex"] or 2, data.properties["scaley"] or 2)
         return sprite
     end)
+
+    registry:register("climbentry", function(data)
+        return ClimbEntry(data.x, data.y, getRectData(data), {
+            target = data.properties.target,
+            solid = data.properties.solid
+        })
+    end)
+
+    registry:register("climbexit", function(data)
+        return ClimbExit(data.x, data.y, getRectData(data), {
+            target = data.properties.target,
+            direction = data.properties.direction,
+            can_exit = data.properties.can_exit
+        })
+    end)
+
+    registry:register("climblanding", function(data) return ClimbLanding(data.x, data.y, getRectData(data)) end)
+    registry:register("climbarea", function(data) return ClimbArea(data.x, data.y, getRectData(data)) end)
+
+    registry:register("fallingclimbarea", function(data)
+        return FallingClimbArea(data.x, data.y, getRectData(data), {
+            dont_break = data.properties.dont_break,
+            breaks_on_leave = data.properties.breaks_on_leave,
+            fall_time = data.properties.fall_time,
+            timed = data.properties.timed,
+            no_unsafe_area = data.properties.no_unsafe_area
+        })
+    end)
+
+    registry:register("climbunsafe", function(data) return ClimbUnsafe(data.x, data.y, getRectData(data)) end)
+
+    registry:register("climbmover", function(data)
+        return ClimbMover(data.x, data.y, getRectData(data), {
+            target = data.properties.target,
+            exit = data.properties.exit,
+            start_exit = data.properties.start_exit,
+            one_way = data.properties.one_way
+        })
+    end)
 end
 
 function Game:leave()
@@ -876,7 +915,7 @@ end
 ---@return Recruit[]
 function Game:getRecruits(include_incomplete, include_hidden)
     local recruits = {}
-    for id,recruit in pairs(Game.recruits_data) do
+    for id, recruit in pairs(Game.recruits_data) do
         if (not recruit:getHidden() or include_hidden) and (recruit:getRecruited() == true or include_incomplete and type(recruit:getRecruited()) == "number" and recruit:getRecruited() > 0) then
             table.insert(recruits, recruit)
         end
@@ -888,7 +927,7 @@ end
 ---@param recruit string
 ---@return boolean
 function Game:hasRecruit(recruit)
-    return self:getRecruit(recruit):getRecruited() == true
+    return self:getRecruit(recruit) and self:getRecruit(recruit):getRecruited() == true
 end
 
 ---@param chara     string|PartyMember
