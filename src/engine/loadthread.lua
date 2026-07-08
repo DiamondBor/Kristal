@@ -228,32 +228,40 @@ local loaders = {
 
             if love.filesystem.getInfo("/sharedlibs/") then
                 local all_sharedlibs = {}
-                local loaddeps
-                function loaddeps(lib)
+
+                local function loaddeps(lib)
                     if active_sharedlibs[lib.id] then return end
                     active_sharedlibs[lib.id] = lib
+
                     for _, deplib in ipairs(lib.dependencies or {}) do
                         loaddeps(all_sharedlibs[deplib])
                     end
+                    for _, deplib in ipairs(lib.optionalDependencies or {}) do
+                        loaddeps(all_sharedlibs[deplib])
+                    end
                 end
+
                 local dirs = love.filesystem.getDirectoryItems("/sharedlibs")
                 for _, lib_path in ipairs(dirs) do
-                    loadLib("sharedlibs/", lib_path, function (lib)
+                    loadLib("sharedlibs/", lib_path, function(lib)
                         all_sharedlibs[lib.id] = lib
                     end)
                 end
+
                 for lib_id, lib in pairs(all_sharedlibs) do
                     local lib_path = lib.path:sub(#"sharedlibs/")
                     local enabled = lib.default or lib.preload_assets or false
                     if mod.config and mod.config[lib.id] then
                         enabled = true
                     end
+
                     for _, value in ipairs(mod.sharedlibs) do
                         if value == lib.id then
                             enabled = true
                             break
                         end
                     end
+                    
                     if enabled then
                         loaddeps(lib)
                     end
