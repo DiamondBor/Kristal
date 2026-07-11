@@ -215,6 +215,7 @@ function Battle:init()
     self.on_finish_action = nil
 
     self.defending_begin_timer = 0
+    self.defending_end_timer = 0
 end
 
 function Battle:createPartyBattlers()
@@ -261,6 +262,20 @@ function Battle:createPartyBattlers()
     end
 end
 
+function Battle:createBattleUI()
+    return self:addChild(BattleUI())
+end
+
+function Battle:createTensionBar()
+    return self:addChild(TensionBar(-25, 40, true))
+end
+
+function Battle:createUI()
+    self.background = self.encounter:createBackground()
+    self.battle_ui = self:createBattleUI()
+    self.tension_bar = self:createTensionBar()
+end
+
 ---@param state string
 ---@param encounter string|Encounter
 function Battle:postInit(state, encounter)
@@ -271,8 +286,6 @@ function Battle:postInit(state, encounter)
     else
         self.encounter = encounter
     end
-
-    self.background = self.encounter:createBackground()
 
     if Game.world.music:isPlaying() and self.encounter.music then
         self.resume_world_music = true
@@ -292,11 +305,7 @@ function Battle:postInit(state, encounter)
         end
     end
 
-    self.battle_ui = BattleUI()
-    self:addChild(self.battle_ui)
-
-    self.tension_bar = TensionBar(-25, 40, true)
-    self:addChild(self.tension_bar)
+    self:createUI()
 
     self.battler_targets = {}
     for index, battler in ipairs(self.party) do
@@ -455,20 +464,9 @@ function Battle:checkEndWaves(old, new, reason)
                 should_end = false
             end
         end
-        if should_end then
-            self:returnSoul()
-            if self.arena then
-                self.arena:remove()
-                self.arena = nil
-            end
-            for _, battler in ipairs(self.party) do
-                battler.targeted = false
-            end
+        if should_end and old == "DEFENDING" and new ~= "DEFENDINGBEGIN" then
+            self:internalEndWaves()
         end
-    end
-
-    if old == "DEFENDING" and new ~= "DEFENDINGBEGIN" and should_end then
-        self:endWaves()
     end
 end
 
@@ -698,7 +696,7 @@ function Battle:onVictory()
         self.tension_bar:hide()
     end
 
-    self:endWaves()
+    self:internalEndWaves()
 
     for _, battler in ipairs(self.party) do
         battler:setSleeping(false)
@@ -718,15 +716,11 @@ function Battle:onVictory()
         box:resetHeadIcon()
     end
 
-    self.money = self.money + (math.floor(((Game:getTension() * 2.5) / 10)) * Game.chapter)
+    local tp_money = math.floor((Game:getTension() * 2.5) / 10) * Game.chapter
 
-    for _, battler in ipairs(self.party) do
-        for _, equipment in ipairs(battler.chara:getEquipment()) do
-            self.money = math.floor(equipment:applyMoneyBonus(self.money) or self.money)
-        end
-    end
-
-    self.money = math.floor(self.money)
+    self.money = self.money + tp_money
+    self.money = self:applyMoneyBonuses(self.money)
+    self.money = math.floor(math.max(self.money, 0))
 
     self.money = self.encounter:getVictoryMoney(self.money) or self.money
     self.xp = self.encounter:getVictoryXP(self.xp) or self.xp
@@ -914,6 +908,7 @@ end
 function Battle:onDefendingEndState()
     self:undarken()
     self:hideTargets()
+    self.defending_end_timer = 0
 end
 
 --- Called when the [`BattleState`](lua://BattleState) is changed to BATTLETEXT.
@@ -971,8 +966,30 @@ function Battle:onStateChange(old, new, reason)
 end
 
 --- Forcibly end the wave.
+---
 --- This should not be called in place of normal wave ending via time or enemy defeat.
+---
+--- This ends up entering the DEFENDINGEND state.
 function Battle:endWaves()
+    self:setState("DEFENDINGEND")
+end
+
+--- Responsible for actually ending the waves.
+---
+--- This removes the arena, returns the soul, ends all of the waves, and moves to the next turn if specified.
+---
+--- This should NOT be called by user code; instead, use [`Battle:endWaves()`](lua://Battle.endWaves) to end the waves if an immediate end is needed.
+---@private
+function Battle:internalEndWaves()
+    self:returnSoul()
+    if self.arena then
+        self.arena:remove()
+        self.arena = nil
+    end
+    for _, battler in ipairs(self.party) do
+        battler.targeted = false
+    end
+
     for _, wave in ipairs(self.waves) do
         if not wave:onEnd(false) then
             wave:clear()
@@ -980,32 +997,14 @@ function Battle:endWaves()
         end
     end
 
-    local function exitWaves()
+    self.encounter:onWavesDone()
+
+    self.timer:after(15 / 30, function()
         for _, wave in ipairs(self.waves) do
             wave:onArenaExit()
         end
         self.waves = {}
-    end
-
-    local ending_wave = self.state_reason == "WAVEENDED"
-
-    if self:hasCutscene() then
-        self.cutscene:after(function()
-            exitWaves()
-            if ending_wave then
-                self:nextTurn()
-            end
-        end)
-    else
-        self.timer:after(15 / 30, function()
-            exitWaves()
-            if ending_wave then
-                self:nextTurn()
-            end
-        end)
-    end
-
-    self.encounter:onWavesDone()
+    end)
 end
 
 --- Gets the location the soul should spawn at when waves start by default
@@ -1026,17 +1025,20 @@ end
 function Battle:spawnSoul(x, y)
     local bx, by = self:getSoulLocation()
     local color = { self.encounter:getSoulColor() }
+
     self:addChild(HeartBurst(bx - 2, by + 1, color))
+
     if not self.soul then
         self.soul = self.encounter:createSoul(bx, by, color)
         self.soul:transitionTo(x or SCREEN_WIDTH / 2, y or SCREEN_HEIGHT / 2)
         self.soul.target_alpha = self.soul.alpha
         self.soul.alpha = 0
-        if Game:getConfig("soulInvBetweenWaves") then
-            self.soul.inv_timer = Game.old_soul_inv_timer
-        end
-        Game.old_soul_inv_timer = 0
         self:addChild(self.soul)
+    end
+
+    if not Game:getConfig("soulInvBetweenWaves") then
+        -- There is technically one frame of invulnerability here, otherwise it would be `-1`
+        Game:setInvulnFrames(0)
     end
 
     if self.state == "DEFENDINGBEGIN" or self.state == "DEFENDING" then
@@ -1049,7 +1051,6 @@ function Battle:returnSoul(dont_destroy)
     if dont_destroy == nil then dont_destroy = false end
     local bx, by = self:getSoulLocation(true)
     if self.soul then
-        Game.old_soul_inv_timer = self.soul.inv_timer
         self.soul:transitionTo(bx - 2, by + 1, not dont_destroy)
     end
 end
@@ -2296,9 +2297,34 @@ end
 
 function Battle:startProcessing()
     self.has_acted = false
+
+    for _, battler in ipairs(self.party) do
+        -- GreenApron healing effect
+        local _, greenapron_count = battler.chara:checkArmor("greenapron")
+        if greenapron_count > 0 then
+            self:doGreenApronHeal(battler, greenapron_count)
+        end
+    end
+
     if not self.encounter:onActionsStart() then
         self:setState("ACTIONS")
     end
+end
+
+---@param battler PartyBattler
+---@param num_equipped integer
+function Battle:doGreenApronHeal(battler, num_equipped)
+    local action = self:getActionBy(battler)
+
+    if action == nil or action.action ~= "DEFEND" then
+        return
+    end
+
+    -- DIFFERENCE: In DELTARUNE, this does not stack, as you cannot have multiple equipped.
+    local heal_percentage = 0.16 * num_equipped
+
+    local heal_amount = MathUtils.round(battler.chara:getStat("health") * heal_percentage)
+    battler:heal(heal_amount)
 end
 
 ---@param index integer
@@ -2737,6 +2763,8 @@ function Battle:update()
         self:updateDefendingBegin()
     elseif self.state == "DEFENDING" then
         self:updateWaves()
+    elseif self.state == "DEFENDINGEND" then
+        self:updateDefendingEnd()
     elseif self.state == "ENEMYDIALOGUE" then
         self:updateEnemyDialogue()
     elseif self.state == "SHORTACTTEXT" then
@@ -2980,6 +3008,13 @@ function Battle:updateWaves()
     end
 end
 
+function Battle:updateDefendingEnd()
+    if self.defending_end_timer >= 15 then
+        self:nextTurn()
+    end
+    self.defending_end_timer = self.defending_end_timer + DTMULT
+end
+
 function Battle:updateShortActText()
     if Input.pressed("confirm") or Input.down("menu") then
         if (not self.battle_ui.short_act_text_1:isTyping()) and
@@ -3029,6 +3064,7 @@ function Battle:drawDebug()
     self:debugPrintOutline("CTRL+B - kill party", 4, 144)
     self:debugPrintOutline("CTRL+K - fill tension", 4, 160)
     self:debugPrintOutline("CTRL+N - toggle noclip", 4, 176)
+    self:debugPrintOutline("CTRL+I - toggle invincibility", 4, 192)
 end
 
 function Battle:draw()
@@ -3257,9 +3293,27 @@ function Battle:onKeyPressed(key)
         end
         if key == "k" then
             Game:setTension(Game:getMaxTension())
+            Assets.playSound("cardrive", 0.8, 1.4)
+
+            if self.tension_bar ~= nil then
+                self.tension_bar:flash()
+            end
         end
         if key == "n" then
             NOCLIP = not NOCLIP
+            if NOCLIP then
+                Assets.playSound("petrify")
+            else
+                Assets.playSound("bump")
+            end
+        end
+        if key == "i" then
+            INVINCIBILITY = not INVINCIBILITY
+            if INVINCIBILITY then
+                Assets.playSound("sparkle_glock")
+            else
+                Assets.playSound("bump")
+            end
         end
     end
 
@@ -3578,51 +3632,94 @@ end
 function Battle:handleAttackingInput(key)
     if Input.isConfirm(key) then
         if not self.attack_done and not self.cancel_attack and #self.battle_ui.attack_boxes > 0 then
-            local closest
+            local closest = math.huge
             local closest_attacks = {}
 
             for _, attack in ipairs(self.battle_ui.attack_boxes) do
                 if not attack.attacked then
                     local close = attack:getClose()
-                    if not closest then
-                        closest = close
-                        table.insert(closest_attacks, attack)
-                    elseif close == closest then
-                        table.insert(closest_attacks, attack)
-                    elseif close < closest then
-                        closest = close
-                        closest_attacks = { attack }
+
+                    if close < 15 and close > -5 then
+                        if close == closest then
+                            table.insert(closest_attacks, attack)
+                        elseif close < closest then
+                            closest = close
+                            closest_attacks = { attack }
+                        end
                     end
                 end
             end
 
-            if closest and closest < 14.2 and closest > -2 then
-                for _, attack in ipairs(closest_attacks) do
-                    local points = attack:hit()
+            for _, attack in ipairs(closest_attacks) do
+                local points = attack:hit()
 
-                    local action = self:getActionBy(attack.battler, true)
-                    action.points = points
+                local action = self:getActionBy(attack.battler, true)
+                action.points = points
 
-                    if self:processAction(action) then
-                        self:finishAction(action)
-                    end
+                if self:processAction(action) then
+                    self:finishAction(action)
                 end
             end
         end
     end
 end
 
---- Returns the equipment-modified heal amount from a healing action performed by the specified party member
----@param base_heal number      The heal amount to modify
----@param healer PartyMember    The character performing the heal action
-function Battle:applyHealBonuses(base_heal, healer)
-    local current_heal = base_heal
-    for _, battler in ipairs(self.party) do
-        for _, item in ipairs(battler.chara:getEquipment()) do
-            current_heal = item:applyHealBonus(current_heal, base_heal, healer)
+--- Applies equipment modifiers to the heal amount from a healing action performed by the specified party member.
+---@param heal number # The base heal amount to apply bonuses to.
+---@param caster PartyMember? # The party member performing the heal, if applicable.
+---@param target PartyMember? # The party member targeted by the heal, if applicable.
+---@return number new_heal # The modified heal amount.
+function Battle:applyHealBonuses(heal, caster, target)
+    return Game:callEquipmentBonusCalculations(
+        -- Current value, Base value
+        heal, heal,
+        -- Group calculation
+        function(item, current_heal, base_heal, num_equipped)
+            return item:calculateBattleHeal(current_heal, base_heal, caster, target)
+        end,
+        -- Priority getter
+        function(item)
+            return item:calculateBattleHealPriority()
+        end,
+        -- Direct calculation (for deprecated method)
+        function(item, current_heal, base_heal)
+            -- DEPRECATED in 0.11.0
+            ---@diagnostic disable-next-line: deprecated
+            return item:applyHealBonus(current_heal, base_heal, caster)
         end
-    end
-    return current_heal
+    )
+end
+
+--- Returns the equipment-modified money amount from a battle victory payout.
+---@param money number # The base amount of money to apply bonuses to.
+---@return number new_money # The modified amount of money.
+function Battle:applyMoneyBonuses(money)
+    return Game:callEquipmentBonusCalculations(
+        -- Current value, Base value
+        money, money,
+        -- Group calculation
+        function(item, current_money, base_money, num_equipped)
+            return item:calculateBattleMoney(current_money, base_money, num_equipped)
+        end,
+        -- Priority getter
+        function(item)
+            return item:calculateBattleMoneyPriority()
+        end,
+        -- Direct calculation (for deprecated method)
+        function(item, current_money, base_money)
+            -- DEPRECATED in 0.11.0
+            ---@diagnostic disable-next-line: deprecated
+            return item:applyMoneyBonus(current_money)
+        end
+    )
+end
+
+--- Whether the battle should decrease the invulnerability timer.
+---
+--- By default, this redirects to [`Encounter:shouldDecreaseInvuln()`](lua://Encounter.shouldDecreaseInvuln).
+---@return boolean? decrease_invuln # `true` if the invulnerability timer should decrease.
+function Battle:shouldDecreaseInvuln()
+    return self.encounter:shouldDecreaseInvuln()
 end
 
 function Battle:canDeepCopy()

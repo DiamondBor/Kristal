@@ -1187,7 +1187,6 @@ end
 function Kristal.setVolume(volume)
     Kristal.Config["masterVolume"] = MathUtils.clamp(volume, 0, 1)
     love.audio.setVolume(volume)
-    Kristal.saveConfig()
 end
 
 --- Called internally to make sure the correct cursor is displayed.
@@ -1237,6 +1236,7 @@ function Kristal.resetDevMode()
     FAST_FORWARD = false
     DEBUG_RENDER = false
     NOCLIP = false
+    INVINCIBILITY = false
 end
 
 --- Clears all state expected to be changed by projects. \
@@ -1339,6 +1339,7 @@ function Kristal.quickReload(mode)
     local dev_fast_forward = FAST_FORWARD
     local dev_debug_render = DEBUG_RENDER
     local dev_noclip = NOCLIP
+    local dev_invincibility = INVINCIBILITY
 
     -- Temporarily save game variables
     local save, save_id, encounter, shop
@@ -1393,11 +1394,25 @@ function Kristal.quickReload(mode)
                         FAST_FORWARD = dev_fast_forward
                         DEBUG_RENDER = dev_debug_render
                         NOCLIP = dev_noclip
+                        INVINCIBILITY = dev_invincibility
                     end
                 end
             end)
         else
-            Kristal.loadMod(mod_id, save_id)
+            Kristal.loadMod(mod_id, save_id, nil, function()
+                if Kristal.preInitMod(mod_id) then
+                    Kristal.setDesiredWindowTitleAndIcon()
+                    Kristal.setState("Game", save_id)
+                    Kristal.resetDevMode()
+                    if Kristal.isDevMode() then
+                        DEBUG_OVERRIDE = dev_debug_override
+                        FAST_FORWARD = dev_fast_forward
+                        DEBUG_RENDER = dev_debug_render
+                        NOCLIP = dev_noclip
+                        INVINCIBILITY = dev_invincibility
+                    end
+                end
+            end)
         end
     end)
 end
@@ -1671,10 +1686,16 @@ function Kristal.resetWindow()
         properties
     )
 
-    -- Force tilelayers to redraw, since resetWindow destroys their canvases
-    if Game.world then
-        for _, tilelayer in ipairs(Game.world.stage:getObjects(TileLayer)) do
-            tilelayer.drawn = false
+    -- Force text to redraw, since resetWindow destroys their canvases.
+    -- TODO: not this...
+
+    local stages = { Kristal.Stage, Kristal.States["Testing"].stage, Game.stage, MainMenu.stage }
+
+    for _, stage in pairs(stages) do
+        if stage ~= nil then
+            for _, obj in ipairs(stage:getObjects(Text)) do
+                obj:forceRedraw()
+            end
         end
     end
 end
